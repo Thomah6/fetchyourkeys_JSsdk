@@ -7,7 +7,7 @@
   "exports": {
     ".": {
       "import": "./lib/index.js",
-      "require": "./lib/index.cjs",
+      "require": "./lib-cjs/index.js",
       "types": "./lib/index.d.ts"
     }
   },
@@ -18,7 +18,7 @@
   },
   "scripts": {
     "build": "tsc && npm run build:cjs",
-    "build:cjs": "tsc --module commonjs --outDir ./lib-cjs && echo '{\"type\":\"commonjs\"}' > ./lib-cjs/package.json",
+    "build:cjs": "tsc --module commonjs --outDir ./lib-cjs && echo {\"type\":\"commonjs\"} > ./lib-cjs/package.json",
     "dev": "tsc --watch",
     "test": "echo \"Error: no test specified\" && exit 1",
     "example": "node examples/basic.js"
