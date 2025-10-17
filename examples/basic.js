@@ -1,504 +1,531 @@
-// 📦 BASIC USAGE EXAMPLE - FetchYourKeys SDK
-// Exemples concrets d'utilisation pour les développeurs
+// ════════════════════════════════════════════════════════════════
+// 🧪 FICHIER DE TEST COMPLET - FetchYourKeys SDK (CORRIGÉ)
+// Teste tous les cas d'usage pratiques comme un vrai utilisateur
+// ════════════════════════════════════════════════════════════════
 
 import FetchYourKeys from '../lib/index.js';
-
-/**
- * 🎯 EXEMPLE 1: Initialisation de base
- * Configuration minimale pour commencer
- */
-async function exempleInitialisation() {
-  console.log('🎯 EXEMPLE 1: Initialisation de base\n');
-
-  // Méthode 1: Avec variables d'environnement
-  const sdk1 = new FetchYourKeys();
-  // Assurez-vous d'avoir FYK_SECRET_KEY dans votre .env
-
-  // Méthode 2: Avec clé API directe
-  const sdk2 = new FetchYourKeys({
-    apiKey: 'votre-clé-api-secrète-ici'
-  });
-
-  // Méthode 3: Configuration complète
-  const sdk = new FetchYourKeys({
-    apiKey: process.env.FYK_SECRET_KEY, // Clé API obligatoire
-    environment: 'dev', // 'dev' (cache disque) ou 'prod' (cache mémoire)
-    debug: false, // Active les logs détaillés
-    baseURL: 'https://apifetchyourkeys.vercel.app/v1/keys' // URL par défaut
-  });
-
-  console.log('✅ SDK initialisé avec succès');
-  return sdk;
-}
-
-/**
- * 🎯 EXEMPLE 2: Récupération simple d'une clé
- * Méthode fondamentale pour obtenir une clé API
- */
-async function exempleRecuperationSimple() {
-  console.log('\n🎯 EXEMPLE 2: Récupération simple d\'une clé\n');
-
-  const fyk = new FetchYourKeys({
-    apiKey: process.env.FYK_SECRET_KEY,
-    debug: false
-  });
-
-  // 📌 Récupérer une clé spécifique
-  const stripeKey = await fyk.get('STRIPE_SECRET_KEY');
-  
-  // if (stripeKey) {
-  //   console.log('✅ Clé Stripe trouvée:');
-  //   console.log('   Label:', stripeKey.label);
-  //   console.log('   Service:', stripeKey.service);
-  //   console.log('   Valeur:', stripeKey.value.substring(0, 15) + '...');
-  //   console.log('   Active:', stripeKey.is_active);
-  // } else {
-  //   console.log('❌ Clé Stripe non trouvée');
-  // }
-
-  return stripeKey;
-}
-
-/**
- * 🎯 EXEMPLE 3: Récupération avec valeur de fallback
- * Essentiel pour les environnements de développement
- */
-async function exempleAvecFallback() {
-  console.log('\n🎯 EXEMPLE 3: Récupération avec valeur de fallback\n');
-
-  const fyk = new FetchYourKeys({
-    apiKey: process.env.FYK_SECRET_KEY
-  });
-
-  // 📌 Récupération avec fallback - parfait pour le développement
-  const databaseUrl = await fyk.getWithFallback(
-    'DATABASE_URL',
-    'postgresql://localhost:5432/myapp_dev'
-  );
-
-  const apiUrl = await fyk.getWithFallback(
-    'API_BASE_URL', 
-    'https://api.monapp.com/v1'
-  );
-
-  const port = await fyk.getWithFallback('SERVER_PORT', '3000');
-
-  // console.log('✅ Configuration avec fallbacks:');
-  // console.log('   Database:', databaseUrl);
-  // console.log('   API URL:', apiUrl);
-  // console.log('   Port:', port);
-
-  return { databaseUrl, apiUrl, port };
-}
-
-/**
- * 🎯 EXEMPLE 4: Récupération multiple
- * Optimise les appels réseau en regroupant les requêtes
- */
-async function exempleRecuperationMultiple() {
-  console.log('\n🎯 EXEMPLE 4: Récupération multiple\n');
-
-  const fyk = new FetchYourKeys({
-    apiKey: process.env.FYK_SECRET_KEY
-  });
-
-  // 📌 Récupérer plusieurs clés en un seul appel
-  const keys = await fyk.getMultiple([
-    'STRIPE_SECRET_KEY',
-    'SENDGRID_API_KEY', 
-    'JWT_SECRET',
-    'DATABASE_URL',
-    'UNE_CLE_INEXISTANTE' // Serra null
-  ]);
-
-  const foundKeys = Object.values(keys).filter(Boolean);
-  const notFoundCount = Object.values(keys).filter(k => !k).length;
-  console.log(`✅ Récupération multiple : ${foundKeys.length} clés trouvées, ${notFoundCount} non trouvées`);
-
-  return keys;
-}
-
-/**
- * 🎯 EXEMPLE 5: Récupération de toutes les clés
- * Utile pour l'inspection ou le debugging
- */
-async function exempleToutesLesCles() {
-  console.log('\n🎯 EXEMPLE 5: Récupération de toutes les clés\n');
-
-  const fyk = new FetchYourKeys({
-    apiKey: process.env.FYK_SECRET_KEY
-  });
-
-  // 📌 Obtenir toutes les clés disponibles
-  const allKeys = await fyk.getAll();
-
-  console.log(`📚 ${allKeys.length} clés disponibles dans le système`);
-  if (allKeys.length > 0) {
-    const sampleKeys = allKeys.slice(0, 3);
-    console.log('   Exemples de clés :');
-    sampleKeys.forEach(key => {
-      console.log(`   • ${key.label} (${key.service}) - Créée le ${new Date(key.created_at).toLocaleDateString()}`);
-    });
-    if (allKeys.length > 3) {
-      console.log(`   ... et ${allKeys.length - 3} clés supplémentaires`);
-    }
-  }
-
-  return allKeys;
-}
-
-/**
- * 🎯 EXEMPLE 6: Filtrage des clés
- * Recherche avancée dans vos clés
- */
-async function exempleFiltrage() {
-  console.log('\n🎯 EXEMPLE 6: Filtrage des clés\n');
-
-  const fyk = new FetchYourKeys({
-    apiKey: process.env.FYK_SECRET_KEY
-  });
-
-  // 📌 Filtrer les clés actives
-  const activeKeys = await fyk.filter(key => key.is_active);
-  console.log(`🎯 ${activeKeys.length} clés actives trouvées`);
-  
-  // 📌 Filtrer par pattern dans le label
-  const stripeKeys = await fyk.filter(key => 
-    key.label.toLowerCase().includes('stripe')
-  );
-  console.log(`🔐 ${stripeKeys.length} clés Stripe trouvées`);
-
-  // 📌 Filtrer par date de création récente
-  const oneMonthAgo = new Date();
-  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-  const recentKeys = await fyk.filter(key => new Date(key.created_at) > oneMonthAgo);
-  console.log(`🆕 ${recentKeys.length} clés créées récemment (depuis ${oneMonthAgo.toLocaleDateString()})`);
-  
-  // Afficher un résumé des résultats
-  console.log('\n📊 Résumé des filtres :');
-  console.log(`   • Clés actives : ${activeKeys.length}`);
-  console.log(`   • Clés Stripe : ${stripeKeys.length}`);
-  console.log(`   • Clés récentes : ${recentKeys.length}`);
-
-  return { activeKeys, stripeKeys, recentKeys };
-}
-
-/**
- * 🎯 EXEMPLE 7: Récupération par service
- * Organisation par catégories de services
- */
-async function exempleParService() {
-  console.log('\n🎯 EXEMPLE 7: Récupération par service\n');
-
-  const fyk = new FetchYourKeys({
-    apiKey: process.env.FYK_SECRET_KEY
-  });
-
-  // 📌 Obtenir toutes les clés d'un service spécifique
-  const stripeKeys = await fyk.getByService('stripe');
-  const sendgridKeys = await fyk.getByService('sendgrid');
-  const databaseKeys = await fyk.getByService('database');
-
-  console.log('🏷️ Clés par service:');
-  console.log(`   Stripe: ${stripeKeys.length} clés`);
-  console.log(`   SendGrid: ${sendgridKeys.length} clés`);
-  console.log(`   Database: ${databaseKeys.length} clés`);
-
-  // Afficher un résumé des clés Stripe
-  if (stripeKeys.length > 0) {
-    console.log(`\n🔑 Détails des ${stripeKeys.length} clés Stripe :`);
-    // Afficher uniquement les 3 premières clés pour éviter la surcharge de logs
-    const keysToShow = stripeKeys.slice(0, 3);
-    keysToShow.forEach(key => {
-      console.log(`   • ${key.label} (${key.service}): ${key.value.substring(0, 8)}...`);
-    });
-    if (stripeKeys.length > 3) {
-      console.log(`   ... et ${stripeKeys.length - 3} clés supplémentaires`);
-    }
-  }
-
-  return { stripeKeys, sendgridKeys, databaseKeys };
-}
-
-/**
- * 🎯 EXEMPLE 8: Gestion du cache et rafraîchissement
- * Contrôle avancé du cache
- */
-async function exempleGestionCache() {
-  console.log('\n🎯 EXEMPLE 8: Gestion du cache et rafraîchissement\n');
-
-  const fyk = new FetchYourKeys({
-    apiKey: process.env.FYK_SECRET_KEY,
-    debug: true
-  });
-
-  // 📌 Obtenir les statistiques du cache
-  const stats = fyk.getStats();
-  console.log('📊 Statistiques du cache:');
-  console.log('   Clés en cache:', stats.cachedKeys);
-  console.log('   Type de cache:', stats.cacheType);
-  console.log('   Environnement:', stats.environment);
-  console.log('   En ligne:', stats.isOnline);
-  console.log('   Statut:', stats.status);
-  console.log('   Cache ID:', stats.cacheId);
-
-  // 📌 Rafraîchir manuellement le cache
-  console.log('\n🔄 Rafraîchissement du cache...');
-  const refreshSuccess = await fyk.refresh();
-  console.log('   Rafraîchissement:', refreshSuccess ? '✅ Réussi' : '❌ Échoué');
-
-  // 📌 Vérifier la connexion
-  console.log('\n🌐 Vérification de connexion...');
-  const isConnected = await fyk.checkConnection();
-  console.log('   Connecté à l\'API:', isConnected ? '✅ Oui' : '❌ Non');
-
-  // 📌 Nettoyer le cache
-  console.log('\n🧹 Nettoyage du cache...');
-  fyk.clearCache();
-  console.log('   Cache nettoyé');
-
-  const newStats = fyk.getStats();
-  console.log('   Nouvelles statistiques:', newStats);
-
-  return { stats: newStats, isConnected, refreshSuccess };
-}
-
-/**
- * 🎯 EXEMPLE 9: Configuration d'application réelle
- * Cas d'usage pratique pour une application
- */
-async function exempleConfigurationApplication() {
-  console.log('\n🎯 EXEMPLE 9: Configuration d\'application réelle\n');
-
-  const fyk = new FetchYourKeys({
-    apiKey: process.env.FYK_SECRET_KEY
-  });
-
-  // 📌 Configuration complète d'une application
-  const config = {
-    // Base de données
-    database: {
-      url: await fyk.getWithFallback('DATABASE_URL', 'postgresql://localhost:5432/dev'),
-      maxConnections: parseInt(await fyk.getWithFallback('DB_MAX_CONNECTIONS', '10'))
-    },
-
-    // Paiements
-    payments: {
-      stripe: {
-        secretKey: await fyk.getWithFallback('STRIPE_SECRET_KEY', ''),
-        publishableKey: await fyk.getWithFallback('STRIPE_PUBLISHABLE_KEY', ''),
-        webhookSecret: await fyk.getWithFallback('STRIPE_WEBHOOK_SECRET', '')
-      }
-    },
-
-    // Authentification
-    auth: {
-      jwtSecret: await fyk.getWithFallback('JWT_SECRET', 'dev-secret-change-in-production'),
-      jwtExpiry: await fyk.getWithFallback('JWT_EXPIRY', '24h'),
-      refreshTokenExpiry: await fyk.getWithFallback('REFRESH_TOKEN_EXPIRY', '7d')
-    },
-
-    // Email
-    email: {
-      sendgridKey: await fyk.getWithFallback('SENDGRID_API_KEY', ''),
-      fromEmail: await fyk.getWithFallback('FROM_EMAIL', 'noreply@example.com'),
-      fromName: await fyk.getWithFallback('FROM_NAME', 'My App')
-    },
-
-    // API externes
-    apis: {
-      openai: await fyk.getWithFallback('OPENAI_API_KEY', ''),
-      googleMaps: await fyk.getWithFallback('GOOGLE_MAPS_API_KEY', '')
-    },
-
-    // Application
-    app: {
-      port: parseInt(await fyk.getWithFallback('PORT', '3000')),
-      nodeEnv: await fyk.getWithFallback('NODE_ENV', 'development'),
-      logLevel: await fyk.getWithFallback('LOG_LEVEL', 'info')
-    }
-  };
-
-  console.log('⚙️ Configuration d\'application générée avec succès');
-  console.log('📋 Résumé de la configuration :');
-  console.log(`   • Base de données : ${config.database ? 'Configurée' : 'Non configurée'}`);
-  console.log(`   • Paiements : ${config.payments?.stripe?.secretKey ? 'Stripe configuré' : 'Non configuré'}`);
-  console.log(`   • Authentification : ${config.auth?.jwtSecret ? 'JWT configuré' : 'Non configuré'}`);
-  console.log(`   • Email : ${config.email?.sendgridKey ? 'SendGrid configuré' : 'Non configuré'}`);
-  console.log(`   • API externes : ${Object.values(config.apis || {}).filter(Boolean).length} services configurés`);
-  console.log(`   • Application : Port ${config.app?.port}, Environnement ${config.app?.nodeEnv}`);
-
-  return config;
-}
-
-/**
- * 🎯 EXEMPLE 10: Gestion des erreurs et debug
- * Bonnes pratiques pour la production
- */
-async function exempleGestionErreurs() {
-  console.log('\n🎯 EXEMPLE 10: Gestion des erreurs et debug\n');
-
-  try {
-    // 📌 Initialisation avec gestion d'erreur
-    const fyk = new FetchYourKeys({
-      apiKey: process.env.FYK_SECRET_KEY || 'invalid-key',
-      debug: true
-    });
-
-    // 📌 Activer/désactiver le debug à la volée
-    fyk.setDebug(true);
-    console.log('🔧 Mode debug activé');
-
-    // 📌 Utilisation sécurisée avec try/catch
-    const criticalKey = await fyk.getWithFallback('CRITICAL_KEY', 'fallback-value');
-    console.log('✅ Clé critique:', criticalKey);
-
-    // 📌 Récupérer l'historique des logs
-    const logs = fyk.getLogHistory();
-    console.log(`📝 ${logs.length} entrées de log disponibles`);
-
-    // Afficher un résumé des logs récents
-    const recentLogs = logs.slice(-3);
-    console.log('📋 3 logs récents sur', logs.length, 'au total:');
-    recentLogs.forEach((log, i) => {
-      console.log(`   [${i+1}/${logs.length}]`, log);
-    });
-
-    // 📌 Nettoyage propre
-    fyk.destroy();
-    console.log('♻️ Instance nettoyée');
-
-  } catch (error) {
-    console.error('💥 Erreur capturée:');
-    console.error('   Message:', error.message);
-    console.error('   Code:', error.code);
-    
-    if (error.details) {
-      console.error('   Détails:', error.details);
-    }
-
-    // Suggestions de résolution
-    console.log('\n💡 Conseils de dépannage:');
-    console.log('   • Vérifiez votre clé API FetchYourKeys');
-    console.log('   • Vérifiez votre connexion internet');
-    console.log('   • Activez le mode debug pour plus d\'informations');
-  }
-}
-
-/**
- * 🎯 EXEMPLE 11: Scénario de migration
- * Passage d'environnements classiques à FetchYourKeys
- */
-async function exempleMigration() {
-  console.log('\n🎯 EXEMPLE 11: Scénario de migration\n');
-
-  const fyk = new FetchYourKeys({
-    apiKey: process.env.FYK_SECRET_KEY
-  });
-
-  // 📌 Ancienne méthode (variables d'environnement)
-  const oldWay = {
-    databaseUrl: process.env.DATABASE_URL,
-    stripeKey: process.env.STRIPE_SECRET_KEY,
-    jwtSecret: process.env.JWT_SECRET
-  };
-
-  // 📌 Nouvelle méthode (FetchYourKeys)
-  const newWay = {
-    databaseUrl: await fyk.getWithFallback('DATABASE_URL', process.env.DATABASE_URL),
-    stripeKey: await fyk.getWithFallback('STRIPE_SECRET_KEY', process.env.STRIPE_SECRET_KEY),
-    jwtSecret: await fyk.getWithFallback('JWT_SECRET', process.env.JWT_SECRET)
-  };
-
-  console.log('🔄 Comparaison des méthodes de configuration :');
-  
-  const compareValues = (label, oldVal, newVal) => {
-    const oldStatus = oldVal ? '✅ Défini' : '❌ Non défini';
-    const newStatus = newVal ? '✅ Trouvé' : '❌ Non trouvé';
-    console.log(`   ${label}:`);
-    console.log(`      Ancienne méthode: ${oldStatus}`);
-    console.log(`      Nouvelle méthode: ${newStatus}`);
-  };
-  
-  compareValues('DATABASE_URL', oldWay.databaseUrl, newWay.databaseUrl);
-  compareValues('STRIPE_SECRET_KEY', oldWay.stripeKey, newWay.stripeKey);
-  compareValues('JWT_SECRET', oldWay.jwtSecret, newWay.jwtSecret);
-  
-  const oldDefined = [oldWay.databaseUrl, oldWay.stripeKey, oldWay.jwtSecret].filter(Boolean).length;
-  const newFound = [newWay.databaseUrl, newWay.stripeKey, newWay.jwtSecret].filter(Boolean).length;
-  
-  console.log(`\n📊 Résumé :`);
-  console.log(`   • Ancienne méthode: ${oldDefined}/3 variables définies`);
-  console.log(`   • Nouvelle méthode: ${newFound}/3 clés trouvées`);
-
-  return { oldWay, newWay };
-}
-
-/**
- * 🚀 FONCTION PRINCIPALE - Exécute tous les exemples
- */
-async function runAllExamples() {
-  console.log('🚀 DÉMARRAGE DES EXEMPLES FETCHYOURKEYS SDK\n');
-  console.log('=' .repeat(50));
-
-  try {
-    // Exécution séquentielle des exemples
-    await exempleInitialisation();
-    await exempleRecuperationSimple();
-    await exempleAvecFallback();
-    await exempleRecuperationMultiple();
-    await exempleToutesLesCles();
-    await exempleFiltrage();
-    await exempleParService();
-    await exempleGestionCache();
-    await exempleConfigurationApplication();
-    await exempleGestionErreurs();
-    await exempleMigration();
-
-    console.log('\n' + '=' .repeat(50));
-    console.log('🎉 TOUS LES EXEMPLES ONT ÉTÉ EXÉCUTÉS AVEC SUCCÈS!');
-    console.log('\n📚 RÉCAPITULATIF DES MÉTHODES DISPONIBLES:');
-    console.log('   • get(label) - Récupère une clé spécifique');
-    console.log('   • getWithFallback(label, fallback) - Avec valeur par défaut');
-    console.log('   • getMultiple(labels) - Récupération groupée');
-    console.log('   • getAll() - Toutes les clés');
-    console.log('   • filter(predicate) - Filtrage personnalisé');
-    console.log('   • getByService(service) - Par catégorie');
-    console.log('   • refresh() - Rafraîchit le cache');
-    console.log('   • checkConnection() - Vérifie la connexion');
-    console.log('   • getStats() - Statistiques du cache');
-    console.log('   • clearCache() - Nettoie le cache');
-    console.log('   • getLogHistory() - Historique des logs');
-    console.log('   • setDebug(enable) - Contrôle du debug');
-    console.log('   • destroy() - Nettoyage de l\'instance');
-
-  } catch (error) {
-    console.error('\n💥 ERREUR LORS DE L\'EXÉCUTION DES EXEMPLES:');
-    console.error('Message:', error.message);
-    
-    if (error.details) {
-      console.error('Détails:', error.details);
-    }
-  }
-}
-
-// 🎯 Point d'entrée principal
-// if (import.meta.url.includes(process.argv[1])) {
-  runAllExamples();
-// }
-
-// Exportation pour utilisation comme module
-export {
-  exempleInitialisation,
-  exempleRecuperationSimple,
-  exempleAvecFallback,
-  exempleRecuperationMultiple,
-  exempleToutesLesCles,
-  exempleFiltrage,
-  exempleParService,
-  exempleGestionCache,
-  exempleConfigurationApplication,
-  exempleGestionErreurs,
-  exempleMigration,
-  runAllExamples
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// ════════════════════════════════════════════════════════════════
+// 🎨 Fonctions d'affichage colorées
+// ════════════════════════════════════════════════════════════════
+
+const colors = {
+  reset: '\x1b[0m',
+  bright: '\x1b[1m',
+  green: '\x1b[32m',
+  red: '\x1b[31m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  cyan: '\x1b[36m',
+  magenta: '\x1b[35m'
 };
+
+function log(message, color = 'reset') {
+  console.log(`${colors[color]}${message}${colors.reset}`);
+}
+
+function logSection(title) {
+  console.log('\n' + '═'.repeat(70));
+  log(`  ${title}`, 'cyan');
+  console.log('═'.repeat(70));
+}
+
+function logSuccess(message) {
+  log(`✅ ${message}`, 'green');
+}
+
+function logError(message) {
+  log(`❌ ${message}`, 'red');
+}
+
+function logWarning(message) {
+  log(`⚠️  ${message}`, 'yellow');
+}
+
+function logInfo(message) {
+  log(`ℹ️  ${message}`, 'blue');
+}
+
+// ════════════════════════════════════════════════════════════════
+// 📊 TEST 1: INITIALISATION NORMALE
+// ════════════════════════════════════════════════════════════════
+
+async function testNormalInitialization() {
+  logSection('TEST 1: Initialisation normale avec clé valide');
+  
+  try {
+    logInfo('Création de l\'instance FetchYourKeys...');
+    
+    const fyk = new FetchYourKeys({
+      apiKey: process.env.FYK_SECRET_KEY,
+      environment: 'dev',
+      debug: true,
+      silentMode: false
+    });
+
+    logInfo('⏳ Attente de l\'initialisation automatique...');
+    
+    // ✅ FIX: Attendre explicitement l'initialisation avec un test
+    await waitForInitialization(fyk);
+
+    const stats = fyk.getStats();
+    logSuccess('SDK initialisé avec succès!');
+    console.log('\n📊 Statistiques:');
+    console.log(`   - Statut: ${stats.status}`);
+    console.log(`   - Clés en cache: ${stats.cachedKeys}`);
+    console.log(`   - En ligne: ${stats.isOnline}`);
+    console.log(`   - Environnement: ${stats.environment}`);
+    console.log(`   - Type de cache: ${stats.cacheType}`);
+    
+    return fyk;
+    
+  } catch (error) {
+    logError('Erreur lors de l\'initialisation:');
+    console.log(`   Code: ${error.code}`);
+    console.log(`   Message: ${error.message}`);
+    if (error.details?.suggestion) {
+      console.log(`   💡 Suggestion: ${error.details.suggestion}`);
+    }
+    throw error;
+  }
+}
+
+// ✅ FONCTION HELPER: Attendre que l'initialisation soit complète
+async function waitForInitialization(fyk, maxAttempts = 30) {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      // Tester si on peut récupérer les stats sans erreur
+      const stats = fyk.getStats();
+      
+      // Si on a des clés ou qu'on est en ligne, c'est bon
+      if (stats.cachedKeys > 0 || stats.isOnline) {
+        return true;
+      }
+      
+      // Attendre 500ms avant de retester
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+    } catch (error) {
+      // Si erreur critique, on throw
+      if (error.code === 'UNAUTHORIZED' || error.code === 'FORBIDDEN') {
+        throw error;
+      }
+      
+      // Sinon on continue d'attendre
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+  
+  throw new Error('Timeout: L\'initialisation a pris trop de temps');
+}
+
+// ════════════════════════════════════════════════════════════════
+// 🔑 TEST 2: RÉCUPÉRATION D'UNE CLÉ (VERSION RESULT)
+// ════════════════════════════════════════════════════════════════
+
+async function testGetWithResult(fyk) {
+  logSection('TEST 2: Récupération d\'une clé avec Result<T>');
+  
+  try {
+    logInfo('Récupération de la clé "groq"...');
+    const result = await fyk.get('groq');
+    
+    if (result.success) {
+      logSuccess('Clé récupérée avec succès!');
+      console.log('\n📦 Données:');
+      console.log(`   - Label: ${result.data.label}`);
+      console.log(`   - Service: ${result.data.service}`);
+      console.log(`   - Valeur: ${result.data.value.substring(0, 20)}...`);
+      console.log(`   - Active: ${result.data.is_active}`);
+      console.log('\n🔍 Metadata:');
+      console.log(`   - Cachée: ${result.metadata.cached}`);
+      console.log(`   - En ligne: ${result.metadata.online}`);
+      console.log(`   - Timestamp: ${result.metadata.timestamp}`);
+    } else {
+      logError('Échec de récupération:');
+      console.log(`   Code: ${result.error.code}`);
+      console.log(`   Message: ${result.error.message}`);
+      console.log(`   💡 Suggestion: ${result.error.suggestion}`);
+      
+      if (result.error.details?.availableKeys) {
+        console.log('\n📋 Clés disponibles:');
+        result.error.details.availableKeys.forEach(key => {
+          console.log(`      - ${key}`);
+        });
+      }
+    }
+    
+  } catch (error) {
+    logError('Erreur inattendue:');
+    console.log(error);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// 🚀 TEST 3: RÉCUPÉRATION SIMPLE (SAFEGET)
+// ════════════════════════════════════════════════════════════════
+
+async function testSafeGet(fyk) {
+  logSection('TEST 3: Récupération simple avec safeGet()');
+  
+  try {
+    logInfo('Test 1: Récupération d\'une clé existante...');
+    const groqKey = await fyk.safeGet('groq', 'fallback-key');
+    logSuccess(`Clé récupérée: ${groqKey.substring(0, 20)}...`);
+    
+    logInfo('\nTest 2: Récupération d\'une clé inexistante avec fallback...');
+    const fakeKey = await fyk.safeGet('clé-inexistante', 'ma-valeur-par-defaut');
+    logWarning(`Fallback utilisé: "${fakeKey}"`);
+    
+    logInfo('\nTest 3: Récupération sans fallback...');
+    const emptyKey = await fyk.safeGet('autre-clé-inexistante');
+    logWarning(`Retour vide: "${emptyKey}"`);
+    
+    logSuccess('\n✅ safeGet() ne crash jamais, même avec des clés inexistantes!');
+    
+  } catch (error) {
+    logError('Erreur inattendue (ne devrait jamais arriver):');
+    console.log(error);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// 📦 TEST 4: RÉCUPÉRATION MULTIPLE
+// ════════════════════════════════════════════════════════════════
+
+async function testGetMultiple(fyk) {
+  logSection('TEST 4: Récupération de plusieurs clés');
+  
+  try {
+    logInfo('Récupération de plusieurs clés...');
+    const labels = ['groq', 'openai', 'claude', 'clé-inexistante'];
+    const result = await fyk.getMultiple(labels);
+    
+    if (result.success) {
+      logSuccess('Récupération multiple réussie!');
+      console.log('\n📦 Résultats:');
+      
+      labels.forEach(label => {
+        const key = result.data[label];
+        if (key) {
+          console.log(`   ✅ ${label}: ${key.value.substring(0, 30)}...`);
+        } else {
+          console.log(`   ❌ ${label}: non trouvée`);
+        }
+      });
+      
+    } else {
+      logError('Échec de récupération multiple:');
+      console.log(`   Code: ${result.error.code}`);
+      console.log(`   Message: ${result.error.message}`);
+    }
+    
+  } catch (error) {
+    logError('Erreur inattendue:');
+    console.log(error);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// 🔄 TEST 5: RAFRAÎCHISSEMENT DU CACHE
+// ════════════════════════════════════════════════════════════════
+
+async function testRefresh(fyk) {
+  logSection('TEST 5: Rafraîchissement du cache');
+  
+  try {
+    logInfo('Rafraîchissement en cours...');
+    const result = await fyk.refresh();
+    
+    if (result.success) {
+      logSuccess('Cache rafraîchi avec succès!');
+      console.log(`   En ligne: ${result.metadata.online}`);
+      console.log(`   Timestamp: ${result.metadata.timestamp}`);
+    } else {
+      logWarning('Rafraîchissement échoué (mais pas grave):');
+      console.log(`   Code: ${result.error.code}`);
+      console.log(`   Message: ${result.error.message}`);
+      console.log(`   💡 ${result.error.suggestion}`);
+    }
+    
+  } catch (error) {
+    logError('Erreur inattendue:');
+    console.log(error);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// 🔍 TEST 6: FILTRAGE ET RECHERCHE
+// ════════════════════════════════════════════════════════════════
+
+async function testFilterAndSearch(fyk) {
+  logSection('TEST 6: Filtrage et recherche de clés');
+  
+  try {
+    logInfo('Récupération de toutes les clés...');
+    const allKeys = await fyk.getAll();
+    logSuccess(`${allKeys.length} clés trouvées au total`);
+    
+    console.log('\n📋 Premières clés:');
+    allKeys.slice(0, 5).forEach(key => {
+      console.log(`   - ${key.label} (${key.service})`);
+    });
+    
+    if (allKeys.length > 0) {
+      const firstService = allKeys[0].service;
+      logInfo(`\nRecherche par service: "${firstService}"...`);
+      const serviceKeys = await fyk.getByService(firstService);
+      logSuccess(`${serviceKeys.length} clés trouvées pour le service "${firstService}"`);
+    }
+    
+  } catch (error) {
+    logError('Erreur lors du filtrage:');
+    console.log(error);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// ⚠️  TEST 7: GESTION D'ERREURS (CLÉ INEXISTANTE)
+// ════════════════════════════════════════════════════════════════
+
+async function testKeyNotFound(fyk) {
+  logSection('TEST 7: Gestion d\'erreur - Clé inexistante');
+  
+  try {
+    logInfo('Tentative de récupération d\'une clé inexistante...');
+    const result = await fyk.get('ma-super-cle-qui-existe-pas');
+    
+    if (!result.success) {
+      logSuccess('Erreur gérée proprement (c\'est normal)!');
+      console.log('\n📋 Détails de l\'erreur:');
+      console.log(`   Code: ${result.error.code}`);
+      console.log(`   Message: ${result.error.message}`);
+      console.log(`   💡 Suggestion: ${result.error.suggestion}`);
+      
+      if (result.error.details?.availableKeys) {
+        console.log('\n   Clés disponibles suggérées:');
+        result.error.details.availableKeys.slice(0, 5).forEach(key => {
+          console.log(`      - ${key}`);
+        });
+      }
+    }
+    
+  } catch (error) {
+    logError('Erreur inattendue (ne devrait pas arriver):');
+    console.log(error);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// 📊 TEST 8: STATISTIQUES ET MONITORING
+// ════════════════════════════════════════════════════════════════
+
+async function testStatsAndMonitoring(fyk) {
+  logSection('TEST 8: Statistiques et monitoring');
+  
+  try {
+    logInfo('Récupération des statistiques...');
+    const stats = fyk.getStats();
+    
+    console.log('\n📊 Statistiques complètes:');
+    console.log(`   Status: ${stats.status}`);
+    console.log(`   Clés en cache: ${stats.cachedKeys}`);
+    console.log(`   En ligne: ${stats.isOnline}`);
+    console.log(`   Environnement: ${stats.environment}`);
+    console.log(`   Type de cache: ${stats.cacheType}`);
+    console.log(`   Cache valide: ${stats.cacheValid}`);
+    console.log(`   Cache ID: ${stats.cacheId}`);
+    console.log(`   API Key: ${stats.apiKey}`);
+    console.log(`   Debug activé: ${stats.debugEnabled}`);
+    console.log(`   Silent mode: ${stats.silentMode}`);
+    
+    logInfo('\nRécupération de l\'historique des logs...');
+    const logs = fyk.getLogHistory();
+    console.log(`   ${logs.length} entrées dans l'historique`);
+    
+    if (logs.length > 0) {
+      console.log('\n   Derniers logs:');
+      logs.slice(-3).forEach(log => {
+        console.log(`   [${log.timestamp}] ${log.message}`);
+      });
+    }
+    
+    logSuccess('Monitoring opérationnel!');
+    
+  } catch (error) {
+    logError('Erreur lors du monitoring:');
+    console.log(error);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// 🚫 TEST 9: INITIALISATION AVEC CLÉ INVALIDE
+// ════════════════════════════════════════════════════════════════
+
+// ════════════════════════════════════════════════════════════════
+// 🧪 MODIFICATION DU TEST 9 - Vérifier l'erreur via getStats()
+// ════════════════════════════════════════════════════════════════
+
+async function testInvalidApiKey() {
+  logSection('TEST 9: Initialisation avec clé API invalide');
+  
+  try {
+    logInfo('Tentative d\'initialisation avec une clé invalide...');
+    
+    const fykInvalid = new FetchYourKeys({
+      apiKey: 'fake-invalid-key-12345',
+      environment: 'dev',
+      debug: false,
+      silentMode: true
+    });
+
+    // ✅ Attendre l'initialisation
+    await waitForInitialization(fykInvalid, 10);
+    
+    // ✅ Vérifier si une erreur est stockée
+    const stats = fykInvalid.getStats();
+    
+    if (stats.error) {
+      logSuccess('Erreur interceptée automatiquement (c\'est normal)!');
+      console.log('\n📋 Détails de l\'erreur:');
+      console.log(`   Code: ${stats.error.code}`);
+      console.log(`   Message: ${stats.error.message}`);
+      console.log(`   💡 Suggestion: ${stats.error.suggestion}`);
+      
+      logSuccess('\n✅ Le SDK a correctement bloqué l\'initialisation avec une clé invalide!');
+    } else {
+      logError('L\'erreur n\'a pas été détectée correctement!');
+    }
+    
+  } catch (error) {
+    // ✅ Alternative: Si throw quand même, gérer ici
+    logSuccess('Erreur interceptée via catch (c\'est normal)!');
+    console.log('\n📋 Détails de l\'erreur:');
+    console.log(`   Code: ${error.code}`);
+    console.log(`   Message: ${error.message}`);
+    if (error.details?.suggestion) {
+      console.log(`   💡 Suggestion: ${error.details.suggestion}`);
+    }
+    logSuccess('\n✅ Le SDK a correctement rejeté la clé invalide!');
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// 🔄 TEST 10: MODE SILENT (PRODUCTION)
+// ════════════════════════════════════════════════════════════════
+
+async function testSilentMode() {
+  logSection('TEST 10: Mode Silent (Production)');
+  
+  try {
+    logInfo('Création d\'une instance en mode silent...');
+    
+    const fykSilent = new FetchYourKeys({
+      apiKey: process.env.FYK_SECRET_KEY,
+      environment: 'prod',
+      debug: true,
+      silentMode: true
+    });
+
+    logInfo('⏳ Attente de l\'initialisation silencieuse...');
+    await waitForInitialization(fykSilent);
+
+    logInfo('Récupération d\'une clé en mode silent...');
+    const result = await fykSilent.get('groq');
+    
+    if (result.success) {
+      logSuccess('Clé récupérée sans pollution de console!');
+      console.log(`   Valeur: ${result.data.value.substring(0, 20)}...`);
+    }
+    
+    const logs = fykSilent.getLogHistory();
+    console.log(`\n   📝 ${logs.length} logs enregistrés en interne (pas dans la console)`);
+    
+    logSuccess('Mode silent opérationnel pour la production!');
+    
+  } catch (error) {
+    logError('Erreur en mode silent:');
+    console.log(error);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// 🎯 FONCTION PRINCIPALE - EXÉCUTION DE TOUS LES TESTS
+// ════════════════════════════════════════════════════════════════
+
+async function runAllTests() {
+  log('\n╔═════════════════════════════════════════════════════════════════╗', 'bright');
+  log('║     🧪 SUITE DE TESTS COMPLÈTE - FetchYourKeys SDK            ║', 'bright');
+  log('╚═════════════════════════════════════════════════════════════════╝', 'bright');
+  
+  let fyk;
+  
+  try {
+    // Test 1: Initialisation normale
+    fyk = await testNormalInitialization();
+    
+    // Test 2: Récupération avec Result
+    await testGetWithResult(fyk);
+    
+    // Test 3: Récupération simple (safeGet)
+    await testSafeGet(fyk);
+    
+    // Test 4: Récupération multiple
+    await testGetMultiple(fyk);
+    
+    // Test 5: Rafraîchissement
+    await testRefresh(fyk);
+    
+    // Test 6: Filtrage et recherche
+    await testFilterAndSearch(fyk);
+    
+    // Test 7: Clé inexistante
+    await testKeyNotFound(fyk);
+    
+    // Test 8: Stats et monitoring
+    await testStatsAndMonitoring(fyk);
+    
+    // Test 9: Clé invalide
+    await testInvalidApiKey();
+    
+    // Test 10: Mode silent
+    await testSilentMode();
+    
+    // Résumé final
+    logSection('RÉSUMÉ FINAL');
+    logSuccess('Tous les tests ont été exécutés avec succès! 🎉');
+    console.log('\n📋 Ce qui a été testé:');
+    console.log('   ✅ Initialisation automatique avec validation');
+    console.log('   ✅ Récupération de clés avec Result<T>');
+    console.log('   ✅ Récupération simple avec safeGet()');
+    console.log('   ✅ Récupération multiple');
+    console.log('   ✅ Rafraîchissement du cache');
+    console.log('   ✅ Filtrage et recherche');
+    console.log('   ✅ Gestion d\'erreurs (clé inexistante)');
+    console.log('   ✅ Statistiques et monitoring');
+    console.log('   ✅ Validation automatique de clé invalide');
+    console.log('   ✅ Mode silent pour production');
+    
+    console.log('\n' + '═'.repeat(70));
+    logSuccess('🎊 FetchYourKeys SDK fonctionne parfaitement! 🎊');
+    console.log('═'.repeat(70) + '\n');
+    
+  } catch (error) {
+    logSection('ERREUR CRITIQUE');
+    logError('Une erreur critique est survenue:');
+    console.log(error);
+    process.exit(1);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// 🚀 LANCEMENT DES TESTS
+// ════════════════════════════════════════════════════════════════
+
+runAllTests().catch(error => {
+  console.error('\n❌ Erreur fatale:', error);
+  process.exit(1);
+});

@@ -6,15 +6,37 @@ import { join, dirname } from 'path';
 
 dotenv.config();
 
+// ════════════════════════════════════════════════════════════════
+// 📦 TYPES ET INTERFACES
+// ════════════════════════════════════════════════════════════════
+
 interface Key {
   id: string;
   label: string;
   service: string;
   value: string;
-  meta: Record<string, any>;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * Structure de réponse standardisée pour toutes les opérations
+ */
+interface Result<T> {
+  success: boolean;
+  data?: T;
+  error?: {
+    code: string;
+    message: string;
+    suggestion?: string;
+    details?: any;
+  };
+  metadata?: {
+    cached: boolean;
+    online: boolean;
+    timestamp: string;
+  };
 }
 
 interface FetchYourKeysOptions {
@@ -22,9 +44,13 @@ interface FetchYourKeysOptions {
   baseURL?: string;
   environment?: 'dev' | 'prod';
   debug?: boolean;
+  silentMode?: boolean; // Nouveau: désactive les console.log
 }
 
-// ✅ Types d'erreurs personnalisées
+// ════════════════════════════════════════════════════════════════
+// 🛠️ CLASSES D'ERREURS PERSONNALISÉES
+// ════════════════════════════════════════════════════════════════
+
 class FetchYourKeysError extends Error {
   constructor(
     message: string,
@@ -57,13 +83,85 @@ class SecurityError extends FetchYourKeysError {
   }
 }
 
-// ✅ Logger intelligent
+// ════════════════════════════════════════════════════════════════
+// 🎯 ERROR MAPPER - CONVERSION ERREURS HTTP EN MESSAGES CLAIRS
+// ════════════════════════════════════════════════════════════════
+
+class ErrorMapper {
+  static mapHttpError(error: any, apiKey: string): Result<never> {
+    const status = error.response?.status;
+
+    const errorMap: Record<number, { code: string; message: string; suggestion: string }> = {
+      401: {
+        code: 'UNAUTHORIZED',
+        message: 'Clé API FetchYourKeys invalide ou expirée',
+        suggestion: 'Vérifiez que votre clé FYK_SECRET_KEY est correcte et active sur https://fetchyourkeys.vercel.app'
+      },
+      403: {
+        code: 'FORBIDDEN',
+        message: 'Accès refusé avec cette clé API',
+        suggestion: 'Cette clé API n\'a pas les permissions nécessaires. Générez une nouvelle clé sur votre dashboard'
+      },
+      404: {
+        code: 'NOT_FOUND',
+        message: 'Endpoint API introuvable',
+        suggestion: 'Vérifiez que l\'URL de base est correcte'
+      },
+      429: {
+        code: 'RATE_LIMIT',
+        message: 'Limite de requêtes atteinte',
+        suggestion: 'Attendez quelques instants avant de réessayer'
+      },
+      500: {
+        code: 'SERVER_ERROR',
+        message: 'Erreur serveur FetchYourKeys',
+        suggestion: 'Réessayez dans quelques instants. Si le problème persiste, contactez le support'
+      }
+    };
+
+    const mapped = errorMap[status] || {
+      code: 'NETWORK_ERROR',
+      message: error.message || 'Erreur de connexion réseau',
+      suggestion: 'Vérifiez votre connexion internet'
+    };
+
+    return {
+      success: false,
+      error: {
+        code: mapped.code,
+        message: mapped.message,
+        suggestion: mapped.suggestion,
+        details: {
+          status,
+          apiKey: ErrorMapper.maskApiKey(apiKey),
+          url: error.config?.url
+        }
+      },
+      metadata: {
+        cached: false,
+        online: false,
+        timestamp: new Date().toISOString()
+      }
+    };
+  }
+
+  private static maskApiKey(apiKey: string): string {
+    if (!apiKey || apiKey.length <= 8) return '***';
+    return apiKey.substring(0, 4) + '***' + apiKey.substring(apiKey.length - 4);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// 📝 LOGGER AVEC SILENT MODE
+// ════════════════════════════════════════════════════════════════
+
 class DebugLogger {
   private static instance: DebugLogger;
   private enabled: boolean = false;
-  private logHistory: string[] = [];
+  private silentMode: boolean = false;
+  private logHistory: Array<{ timestamp: string; level: string; message: string; data?: any }> = [];
 
-  private constructor() {}
+  private constructor() { }
 
   static getInstance(): DebugLogger {
     if (!DebugLogger.instance) {
@@ -72,28 +170,39 @@ class DebugLogger {
     return DebugLogger.instance;
   }
 
-  enable(): void {
+  enable(silentMode: boolean = false): void {
     this.enabled = true;
-    this.log('🔧 Debug mode activé');
+    this.silentMode = silentMode;
+    if (!silentMode) {
+      console.log(`[${new Date().toISOString()}] 🔧 Debug mode activé`);
+    }
   }
 
   disable(): void {
     this.enabled = false;
   }
 
+  setSilentMode(silent: boolean): void {
+    this.silentMode = silent;
+  }
+
   log(message: string, data?: any): void {
-    const timestamp = new Date().toISOString();
-    const logEntry = `[${timestamp}] ${message}`;
-    
-    this.logHistory.push(logEntry);
-    if (this.logHistory.length > 1000) {
-      this.logHistory.shift();
-    }
+    const entry = {
+      timestamp: new Date().toISOString(),
+      level: 'info',
+      message,
+      data
+    };
 
     if (this.enabled) {
-      console.log(logEntry);
-      if (data) {
-        console.log('📋 Données:', data);
+      this.logHistory.push(entry);
+      if (this.logHistory.length > 1000) {
+        this.logHistory.shift();
+      }
+
+      if (!this.silentMode) {
+        console.log(`[${entry.timestamp}] ${message}`);
+        if (data) console.log('📋 Données:', data);
       }
     }
   }
@@ -106,7 +215,7 @@ class DebugLogger {
     this.log(`❌ ${message}`, error);
   }
 
-  getHistory(): string[] {
+  getHistory(): Array<{ timestamp: string; level: string; message: string; data?: any }> {
     return [...this.logHistory];
   }
 
@@ -115,7 +224,10 @@ class DebugLogger {
   }
 }
 
-// ✅ Interface commune pour tous les caches
+// ════════════════════════════════════════════════════════════════
+// 💾 SYSTÈME DE CACHE SÉCURISÉ
+// ════════════════════════════════════════════════════════════════
+
 interface SecureCache {
   set(key: string, value: any): void;
   get(key: string): any;
@@ -128,7 +240,6 @@ interface SecureCache {
   isValidForApiKey(apiKey: string): boolean;
 }
 
-// ✅ Cache DISQUE sécurisé avec isolation par API key
 class SecureDiskCache implements SecureCache {
   private cache: Map<string, any> = new Map();
   private encryptionKey: Buffer;
@@ -145,10 +256,8 @@ class SecureDiskCache implements SecureCache {
     this.cacheSignature = this.generateCacheSignature();
     this.cacheId = this.generateCacheId();
     this.cacheFile = this.getCacheFilePath();
-    
-    // Log simplifié
+
     this.logger.log(`📂 Initialisation cache disque pour API key: ${this.maskApiKey(apiKey)}`);
-    
     this.ensureCacheDirectory();
     this.loadFromDisk();
   }
@@ -159,16 +268,14 @@ class SecureDiskCache implements SecureCache {
   }
 
   private generateCacheId(): string {
-    // ✅ Cache ID unique basé sur l'API key
     return scryptSync(this.apiKey, 'cache-id-salt-v2', 16).toString('hex');
   }
 
   private getCacheFilePath(): string {
-    const cacheDir = process.env.APPDATA || 
-      (process.platform === 'darwin' ? 
-        process.env.HOME + '/Library/Caches' : 
+    const cacheDir = process.env.APPDATA ||
+      (process.platform === 'darwin' ?
+        process.env.HOME + '/Library/Caches' :
         process.env.HOME + '/.cache');
-    
     return join(cacheDir, 'fetchyourkeys', `cache-${this.cacheId}.dat`);
   }
 
@@ -178,7 +285,6 @@ class SecureDiskCache implements SecureCache {
   }
 
   private generateCacheSignature(): string {
-    // ✅ Signature unique par API key
     return scryptSync(this.apiKey, 'disk-cache-signature-v2', 16).toString('hex');
   }
 
@@ -189,11 +295,8 @@ class SecureDiskCache implements SecureCache {
         mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
         this.logger.log(`📁 Dossier cache créé: ${cacheDir}`);
       } catch (error) {
-        this.logger.error('❌ Impossible de créer le dossier cache disque', error);
-        throw new CacheError(
-          'Impossible d\'accéder au cache disque', 
-          { path: cacheDir, error: error }
-        );
+        this.logger.error('Impossible de créer le dossier cache', error);
+        throw new CacheError('Impossible d\'accéder au cache disque', { path: cacheDir, error });
       }
     }
   }
@@ -202,14 +305,12 @@ class SecureDiskCache implements SecureCache {
     try {
       const iv = randomBytes(16);
       const cipher = createCipheriv('aes-256-gcm', this.encryptionKey, iv);
-      
       let encrypted = cipher.update(data, 'utf8', 'hex');
       encrypted += cipher.final('hex');
       const authTag = cipher.getAuthTag();
-      
       return iv.toString('hex') + ':' + authTag.toString('hex') + ':' + encrypted;
     } catch (error) {
-      this.logger.error('❌ Erreur de chiffrement', error);
+      this.logger.error('Erreur de chiffrement', error);
       throw new SecurityError('Erreur lors du chiffrement des données');
     }
   }
@@ -217,54 +318,40 @@ class SecureDiskCache implements SecureCache {
   private decrypt(encryptedData: string): any {
     try {
       const parts = encryptedData.split(':');
-      if (parts.length !== 3) {
-        throw new Error('Format de données chiffrées invalide');
-      }
-      
+      if (parts.length !== 3) throw new Error('Format invalide');
+
       const iv = Buffer.from(parts[0], 'hex');
       const authTag = Buffer.from(parts[1], 'hex');
       const encrypted = parts[2];
-      
       const decipher = createDecipheriv('aes-256-gcm', this.encryptionKey, iv);
       decipher.setAuthTag(authTag);
-      
       let decrypted = decipher.update(encrypted, 'hex', 'utf8');
       decrypted += decipher.final('utf8');
-      
       return JSON.parse(decrypted);
     } catch (error) {
-      this.logger.error('❌ Erreur de déchiffrement', error);
-      throw new SecurityError('Erreur lors du déchiffrement des données');
+      this.logger.error('Erreur de déchiffrement', error);
+      throw new SecurityError('Erreur lors du déchiffrement');
     }
   }
 
   private loadFromDisk(): void {
     try {
       if (existsSync(this.cacheFile)) {
-        this.logger.log(`📖 Tentative de chargement du cache depuis: ${this.cacheFile}`);
         const encryptedData = readFileSync(this.cacheFile, 'utf8');
         const cacheData = this.decrypt(encryptedData);
-        
-        // ✅ Vérification CRITIQUE : la signature ET l'API key correspondent
-        if (cacheData.signature !== this.cacheSignature || cacheData.apiKey !== this.maskApiKey(this.apiKey)) {
-          // Log simplifié, cache signature et apiKey retirées pour l'utilisateur
-          this.logger.warn('⚠️ Cache disque invalide (API key différente ou signature altérée) - régénération');
+
+        if (cacheData.signature !== this.cacheSignature) {
+          this.logger.warn('Cache invalide - régénération');
           this.clear();
           return;
         }
-        
+
         this.cache = new Map(Object.entries(cacheData.data));
-        // Log simplifié
-        this.logger.log(`✅ Cache disque chargé: ${this.cache.size} clés`);
       } else {
-        this.logger.log('📝 Aucun cache disque existant trouvé pour cette API key');
+        this.logger.log('Aucun cache existant');
       }
     } catch (error) {
-      if (error instanceof SecurityError) {
-        this.logger.warn('🔄 Régénération du cache (données corrompues ou invalides)');
-      } else {
-        this.logger.error('❌ Erreur chargement cache disque', error);
-      }
+      this.logger.warn('Régénération du cache');
       this.clear();
     }
   }
@@ -273,31 +360,19 @@ class SecureDiskCache implements SecureCache {
     try {
       const cacheData = {
         signature: this.cacheSignature,
-        apiKey: this.maskApiKey(this.apiKey), // ✅ Stocke l'API key masquée pour vérification
         data: Object.fromEntries(this.cache),
-        timestamp: new Date().toISOString(),
-        version: '2.0',
-        cacheId: this.cacheId
+        timestamp: new Date().toISOString()
       };
-      
       const encryptedData = this.encrypt(JSON.stringify(cacheData));
       writeFileSync(this.cacheFile, encryptedData, { mode: 0o600 });
-      // Log simplifié
-      // this.logger.log(`💾 Cache sauvegardé: ${this.cache.size} clés`);
     } catch (error) {
-      this.logger.error('❌ Impossible de sauvegarder le cache disque', error);
-      throw new CacheError('Erreur lors de la sauvegarde du cache');
+      this.logger.error('Erreur sauvegarde cache', error);
     }
   }
 
   set(key: string, value: any): void {
-    try {
-      this.cache.set(key, value);
-      this.saveToDisk();
-    } catch (error) {
-      this.logger.error(`❌ Erreur sauvegarde clé: ${key}`, error);
-      throw error;
-    }
+    this.cache.set(key, value);
+    this.saveToDisk();
   }
 
   get(key: string): any {
@@ -309,14 +384,9 @@ class SecureDiskCache implements SecureCache {
   }
 
   delete(key: string): boolean {
-    try {
-      const result = this.cache.delete(key);
-      if (result) this.saveToDisk();
-      return result;
-    } catch (error) {
-      this.logger.error(`❌ Erreur suppression clé: ${key}`, error);
-      return false;
-    }
+    const result = this.cache.delete(key);
+    if (result) this.saveToDisk();
+    return result;
   }
 
   keys(): string[] {
@@ -328,10 +398,9 @@ class SecureDiskCache implements SecureCache {
     try {
       if (existsSync(this.cacheFile)) {
         writeFileSync(this.cacheFile, '');
-        this.logger.log('🗑️ Cache disque vidé pour cette API key');
       }
     } catch (error) {
-      this.logger.error('❌ Erreur nettoyage cache disque', error);
+      this.logger.error('Erreur nettoyage cache', error);
     }
   }
 
@@ -348,13 +417,11 @@ class SecureDiskCache implements SecureCache {
       const expectedSignature = scryptSync(apiKey, 'disk-cache-signature-v2', 16).toString('hex');
       return this.cacheSignature === expectedSignature;
     } catch (error) {
-      this.logger.error('❌ Erreur vérification signature cache', error);
       return false;
     }
   }
 }
 
-// ✅ Cache MÉMOIRE sécurisé avec isolation par API key
 class SecureMemoryCache implements SecureCache {
   private static instances: Map<string, SecureMemoryCache> = new Map();
   private cache: Map<string, any> = new Map();
@@ -370,7 +437,6 @@ class SecureMemoryCache implements SecureCache {
     this.encryptionKey = this.generateEncryptionKey();
     this.cacheSignature = this.generateCacheSignature();
     this.cacheId = this.generateCacheId();
-    // Log simplifié
     this.logger.log(`🧠 Initialisation cache mémoire pour API key: ${this.maskApiKey(apiKey)}`);
   }
 
@@ -380,28 +446,15 @@ class SecureMemoryCache implements SecureCache {
   }
 
   private generateCacheId(): string {
-    // ✅ Cache ID unique basé sur l'API key
     return scryptSync(this.apiKey, 'memory-cache-id-v2', 16).toString('hex');
   }
 
-  public static getInstance(apiKey: string): SecureMemoryCache {
+  static getInstance(apiKey: string): SecureMemoryCache {
     const cacheKey = this.generateCacheKey(apiKey);
-    
     if (!SecureMemoryCache.instances.has(cacheKey)) {
       SecureMemoryCache.instances.set(cacheKey, new SecureMemoryCache(apiKey));
     }
-    
-    const instance = SecureMemoryCache.instances.get(cacheKey)!;
-    
-    // ✅ VÉRIFICATION CRITIQUE : l'instance correspond bien à cette API key
-    if (!instance.isValidForApiKey(apiKey)) {
-      // Log simplifié
-      instance.logger.warn('⚠️ Instance cache mémoire invalide - recréation');
-      SecureMemoryCache.instances.delete(cacheKey);
-      return SecureMemoryCache.getInstance(apiKey);
-    }
-    
-    return instance;
+    return SecureMemoryCache.instances.get(cacheKey)!;
   }
 
   private static generateCacheKey(apiKey: string): string {
@@ -409,90 +462,19 @@ class SecureMemoryCache implements SecureCache {
   }
 
   private generateEncryptionKey(): Buffer {
-    const salt = 'fetchyourkeys-memory-cache-v2';
-    return scryptSync(this.apiKey, salt, 32);
+    return scryptSync(this.apiKey, 'fetchyourkeys-memory-cache-v2', 32);
   }
 
   private generateCacheSignature(): string {
     return scryptSync(this.apiKey, 'memory-cache-signature-v2', 16).toString('hex');
   }
 
-  private encrypt(data: string): string {
-    try {
-      const iv = randomBytes(16);
-      const cipher = createCipheriv('aes-256-gcm', this.encryptionKey, iv);
-      
-      let encrypted = cipher.update(data, 'utf8', 'hex');
-      encrypted += cipher.final('hex');
-      const authTag = cipher.getAuthTag();
-      
-      return iv.toString('hex') + ':' + authTag.toString('hex') + ':' + encrypted;
-    } catch (error) {
-      this.logger.error('❌ Erreur de chiffrement mémoire', error);
-      throw new SecurityError('Erreur lors du chiffrement en mémoire');
-    }
-  }
-
-  private decrypt(encryptedData: string): any {
-    try {
-      const parts = encryptedData.split(':');
-      if (parts.length !== 3) {
-        throw new Error('Format de données chiffrées invalide');
-      }
-      
-      const iv = Buffer.from(parts[0], 'hex');
-      const authTag = Buffer.from(parts[1], 'hex');
-      const encrypted = parts[2];
-      
-      const decipher = createDecipheriv('aes-256-gcm', this.encryptionKey, iv);
-      decipher.setAuthTag(authTag);
-      
-      let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-      decrypted += decipher.final('utf8');
-      
-      return JSON.parse(decrypted);
-    } catch (error) {
-      this.logger.error('❌ Erreur de déchiffrement mémoire', error);
-      throw new SecurityError('Erreur lors du déchiffrement en mémoire');
-    }
-  }
-
   set(key: string, value: any): void {
-    try {
-      const encryptedValue = this.encrypt(JSON.stringify({
-        value,
-        apiKey: this.maskApiKey(this.apiKey), // ✅ Stocke l'API key dans les données
-        timestamp: Date.now()
-      }));
-      this.cache.set(key, encryptedValue);
-      // Log simplifié
-      this.logger.log(`💾 Clé mise en cache: ${key}`);
-    } catch (error) {
-      this.logger.error(`❌ Erreur mise en cache clé: ${key}`, error);
-      throw error;
-    }
+    this.cache.set(key, value);
   }
 
   get(key: string): any {
-    try {
-      const encryptedValue = this.cache.get(key);
-      if (!encryptedValue) return undefined;
-      
-      const decrypted = this.decrypt(encryptedValue);
-      
-      // ✅ VÉRIFICATION CRITIQUE : les données appartiennent bien à cette API key
-      if (decrypted.apiKey !== this.maskApiKey(this.apiKey)) {
-        // Log simplifié
-        this.logger.warn(`⚠️ Données cache invalides pour clé: ${key} - suppression`);
-        this.cache.delete(key);
-        return undefined;
-      }
-      
-      return decrypted.value;
-    } catch (error) {
-      this.logger.error(`❌ Erreur récupération clé: ${key}`, error);
-      return undefined;
-    }
+    return this.cache.get(key);
   }
 
   has(key: string): boolean {
@@ -500,12 +482,7 @@ class SecureMemoryCache implements SecureCache {
   }
 
   delete(key: string): boolean {
-    const result = this.cache.delete(key);
-    if (result) {
-      // Log simplifié
-      this.logger.log(`🗑️ Clé supprimée du cache: ${key}`);
-    }
-    return result;
+    return this.cache.delete(key);
   }
 
   keys(): string[] {
@@ -514,7 +491,6 @@ class SecureMemoryCache implements SecureCache {
 
   clear(): void {
     this.cache.clear();
-    this.logger.log(`🧹 Cache mémoire vidé pour API key: ${this.maskApiKey(this.apiKey)}`);
   }
 
   size(): number {
@@ -530,68 +506,67 @@ class SecureMemoryCache implements SecureCache {
       const expectedSignature = scryptSync(apiKey, 'memory-cache-signature-v2', 16).toString('hex');
       return this.cacheSignature === expectedSignature;
     } catch (error) {
-      this.logger.error('❌ Erreur vérification signature mémoire', error);
       return false;
     }
   }
 }
 
-// ✅ Factory pour choisir le cache adapté
 class CacheFactory {
   static createCache(apiKey: string, environment: 'dev' | 'prod' = 'dev'): SecureCache {
     const logger = DebugLogger.getInstance();
-    
-    // ✅ Validation de l'API key
+
     if (!apiKey || apiKey.length < 10) {
-      logger.error('❌ API key invalide', { length: apiKey?.length });
       throw new FetchYourKeysError(
-        'API key invalide',
+        'Clé API invalide',
         'INVALID_API_KEY',
         { suggestion: 'Vérifiez que votre clé API est correcte' }
       );
     }
-    
+
     try {
-      // Log simplifié pour ne pas répéter l'API key masquée
-      const maskedKey = apiKey.substring(0, 4) + '***' + apiKey.substring(apiKey.length - 4);
       if (environment === 'prod') {
-        logger.log(`🚀 Mode PROD: Cache mémoire sécurisé pour API key: ${maskedKey}`);
+        logger.log(`🚀 Mode PROD: Cache mémoire`);
         return SecureMemoryCache.getInstance(apiKey);
       } else {
-        logger.log(`🔧 Mode DEV: Cache disque sécurisé pour API key: ${maskedKey}`);
+        logger.log(`🔧 Mode DEV: Cache disque`);
         return new SecureDiskCache(apiKey);
       }
     } catch (error) {
-      logger.warn('⚠️ Cache disque indisponible - bascule vers cache mémoire', error);
+      logger.warn('Cache disque indisponible - bascule vers mémoire', error);
       return SecureMemoryCache.getInstance(apiKey);
     }
   }
 }
 
-// ✅ Classe principale FetchYourKeys
+// ════════════════════════════════════════════════════════════════
+// 🎯 CLASSE PRINCIPALE FETCHYOURKEYS AVEC VALIDATION AUTOMATIQUE
+// ════════════════════════════════════════════════════════════════
+
 class FetchYourKeys {
   private apiKey: string;
   private baseURL: string;
   private cache: SecureCache;
   private isOnline: boolean = false;
   private initializationPromise: Promise<void>;
+  private initializationError: FetchYourKeysError | null = null; // ✅ NOUVEAU
   private environment: 'dev' | 'prod';
   private debug: boolean;
+  private silentMode: boolean;
   private logger: DebugLogger;
   private cacheId: string;
 
   constructor(options: FetchYourKeysOptions = {}) {
     this.logger = DebugLogger.getInstance();
-    
-    // ✅ Validation et normalisation de l'environnement
     this.environment = this.validateEnvironment(options.environment);
     this.debug = options.debug || false;
-    
+    this.silentMode = options.silentMode || false;
+
     if (this.debug) {
-      this.logger.enable();
+      this.logger.enable(this.silentMode);
     }
-    
+
     this.apiKey = options.apiKey || process.env.FYK_SECRET_KEY || '';
+
     if (!this.apiKey) {
       const error = new FetchYourKeysError(
         'Clé API manquante',
@@ -601,24 +576,26 @@ class FetchYourKeys {
           example: 'new FetchYourKeys({ apiKey: "your-key" })'
         }
       );
-      this.logger.error('❌ Erreur initialisation', error);
+      this.logger.error('Erreur initialisation', error);
       throw error;
     }
-    
+
     this.baseURL = options.baseURL || 'https://apifetchyourkeys.vercel.app/v1/keys';
-    
+
     this.logger.log('🎯 Initialisation FetchYourKeys SDK', {
       environment: this.environment,
       debug: this.debug,
+      silentMode: this.silentMode,
       apiKey: this.maskApiKey(this.apiKey),
       baseURL: this.baseURL
     });
 
-    // ✅ Cache adaptatif selon l'environnement
     this.cache = CacheFactory.createCache(this.apiKey, this.environment);
     this.cacheId = this.cache.getCacheId();
 
-    this.initializationPromise = this.initializeWithOfflineSupport();
+    // ✅ INITIALISATION AUTOMATIQUE AVEC VALIDATION DE LA CLÉ FYK
+    this.initializationPromise = this.initializeWithAutoValidation();
+
   }
 
   private maskApiKey(apiKey: string): string {
@@ -626,438 +603,438 @@ class FetchYourKeys {
     return apiKey.substring(0, 4) + '***' + apiKey.substring(apiKey.length - 4);
   }
 
-  /**
-   * Valide et normalise l'environnement
-   */
   private validateEnvironment(env?: string): 'dev' | 'prod' {
-    if (env === 'dev' || env === 'prod') {
-      return env;
-    }
-    
+    if (env === 'dev' || env === 'prod') return env;
     if (env) {
-      this.logger.warn(`⚠️ Environnement "${env}" invalide - utilisation de "dev" par défaut`, {
-        validEnvironments: ['dev', 'prod'],
-        suggestion: 'Utilisez environment: "dev" ou "prod"'
+      this.logger.warn(`Environnement "${env}" invalide - utilisation de "dev"`, {
+        validEnvironments: ['dev', 'prod']
       });
     }
-    
     return 'dev';
   }
 
-  private async initializeWithOfflineSupport(): Promise<void> {
+  /**
+   * ✅ NOUVELLE MÉTHODE: Initialisation avec validation automatique de la clé FYK
+   * Le SDK vérifie automatiquement la validité de la clé à l'initialisation
+   */
+  private async initializeWithAutoValidation(): Promise<void> {
     const hasCachedData = this.cache.size() > 0;
-    
-    // Logs simplifiés
-    this.logger.log('🔍 État initial', {
-      hasCachedData,
-      cacheSize: this.cache.size(),
-      environment: this.environment,
-    });
 
     try {
-      this.logger.log('🔄 Tentative de connexion à l\'API...');
-      await this.loadAllKeys();
-      this.isOnline = true;
-      this.logger.log('✅ Connexion API réussie');
-      
-    } catch (error) {
-      this.isOnline = false;
-      
-      if (hasCachedData) {
-        // Logs simplifiés (pas de cacheId)
-        this.logger.warn(`⚠️ Mode hors ligne - utilisation du cache (${this.cache.size()} clés)`);
-        
-        // ✅ Vérification de sécurité RENFORCÉE
-        if (!this.cache.isValidForApiKey(this.apiKey)) {
-          const securityError = new SecurityError(
-            'Cache invalide pour cette clé API',
-            {
-              suggestion: 'Le cache a été vidé automatiquement pour raisons de sécurité',
-              action: 'Reconnexion nécessaire',
-              apiKey: this.maskApiKey(this.apiKey),
-              cacheId: this.cacheId
-            }
-          );
-          this.logger.error('❌ Violation de sécurité', securityError);
-          this.cache.clear();
-          throw securityError;
-        }
-      } else {
-        const networkError = new NetworkError(
-          'Impossible de se connecter et cache vide',
+      // ✅ VALIDATION AUTOMATIQUE DE LA CLÉ FYK
+      const response = await axios.get(this.baseURL, {
+        headers: { 'x-fyk-key': this.apiKey },
+        timeout: 10000,
+        validateStatus: (status) => status < 500 // Ne pas throw sur 4xx
+      });
+
+      // ✅ Gestion explicite des erreurs d'authentification
+      if (response.status === 401) {
+        const authError = new FetchYourKeysError(
+          'Clé API FetchYourKeys invalide ou expirée',
+          'UNAUTHORIZED',
           {
-            suggestion: 'Vérifiez votre connexion internet et votre clé API',
+            suggestion: 'Vérifiez que votre clé FYK_SECRET_KEY est correcte et active sur https://fetchyourkeys.vercel.app',
             baseURL: this.baseURL,
-            cacheStatus: 'empty',
             apiKey: this.maskApiKey(this.apiKey)
           }
         );
-        this.logger.error('❌ Erreur critique', networkError);
+        this.logger.error('❌ Authentification échouée', authError);
+        this.initializationError = authError;
+        return; // Sortir sans throw
       }
+
+      if (response.status === 403) {
+        const forbiddenError = new FetchYourKeysError(
+          'Clé API FetchYourKeys non autorisée',
+          'FORBIDDEN',
+          {
+            suggestion: 'Cette clé n\'a pas les permissions nécessaires. Générez une nouvelle clé sur votre dashboard',
+            baseURL: this.baseURL,
+            apiKey: this.maskApiKey(this.apiKey)
+          }
+        );
+        this.logger.error('❌ Accès refusé', forbiddenError);
+        this.initializationError = forbiddenError;
+        return;
+      }
+
+      // ✅ Clé valide, chargement des données
+      interface ApiResponse {
+        success: boolean;
+        data?: Key[];
+        count?: number;
+        decryption_stats?: {
+          total: number;
+          successful: number;
+          failed: number;
+        };
+      }
+
+      const responseData = response.data as ApiResponse;
+
+      if (responseData?.success && Array.isArray(responseData.data)) {
+        this.cache.clear();
+        responseData.data.forEach((key: Key) => {
+          if (key?.label) {  // Vérification de sécurité
+            this.cache.set(key.label, key);
+          }
+        });
+        this.isOnline = true;
+        this.logger.log(`✅ Clé FYK validée - ${this.cache.size()} clés chargées`);
+      } else {
+        this.logger.warn('Aucune donnée valide reçue de l\'API', {
+          hasData: !!responseData,
+          hasSuccess: responseData?.success,
+          dataIsArray: Array.isArray(responseData?.data)
+        });
+      }
+
+    } catch (error: any) {
+      this.isOnline = false;
+
+      if (error instanceof FetchYourKeysError) {
+        this.initializationError = error;
+        return;
+      }
+
+      // ✅ Erreur réseau avec cache disponible
+      if (hasCachedData) {
+        this.logger.warn(`⚠️ Mode hors ligne - utilisation du cache (${this.cache.size()} clés)`);
+        return;
+      }
+
+      // ✅ Erreur réseau sans cache
+      const networkError = new NetworkError(
+        'Impossible de se connecter à FetchYourKeys et aucun cache disponible',
+        {
+          suggestion: 'Vérifiez votre connexion internet et votre clé FYK_SECRET_KEY',
+          baseURL: this.baseURL,
+          cacheStatus: 'empty',
+          apiKey: this.maskApiKey(this.apiKey)
+        }
+      );
+      this.logger.error('❌ Erreur critique', networkError);
+       this.initializationError = networkError;
     }
   }
 
   private async waitForInitialization(): Promise<void> {
     try {
       await this.initializationPromise;
+
+       // ✅ NOUVEAU: Vérifier si une erreur a été stockée
+      if (this.initializationError) {
+        throw this.initializationError;
+      }
     } catch (error) {
-      this.logger.error('❌ Erreur lors de l\'initialisation', error);
+      this.logger.error('Erreur lors de l\'initialisation', error);
       throw error;
     }
   }
 
-  private async loadAllKeys(): Promise<void> {
+
+   /**
+   * ✅ NOUVELLE MÉTHODE: Permet de vérifier l'état d'initialisation
+   */
+  getInitializationError(): FetchYourKeysError | null {
+    return this.initializationError;
+  }
+
+  
+  /**
+   * ✅ MÉTHODE AMÉLIORÉE: get() retourne Result<Key>
+   */
+  async get(label: string): Promise<Result<Key>> {
+    this.logger.log(`🔍 Recherche clé: "${label}"`);
+
     try {
-      this.logger.log('📥 Chargement des clés depuis l\'API...');
+      await this.waitForInitialization();
+
+      if (!this.cache.isValidForApiKey(this.apiKey)) {
+        return {
+          success: false,
+          error: {
+            code: 'CACHE_INVALID',
+            message: 'Cache invalide pour cette clé API',
+            suggestion: 'Reconnectez-vous à internet pour recharger'
+          },
+          metadata: {
+            cached: false,
+            online: this.isOnline,
+            timestamp: new Date().toISOString()
+          }
+        };
+      }
+
+      const cached = this.cache.get(label);
+
+      if (cached) {
+        this.logger.log(`✅ Clé trouvée: "${label}"`);
+        return {
+          success: true,
+          data: this.sanitizeKey(cached),
+          metadata: {
+            cached: true,
+            online: this.isOnline,
+            timestamp: new Date().toISOString()
+          }
+        };
+      }
+
+      // Clé non trouvée
+      return {
+        success: false,
+        error: {
+          code: 'KEY_NOT_FOUND',
+          message: `La clé "${label}" n'existe pas`,
+          suggestion: 'Vérifiez le nom de la clé sur votre dashboard FetchYourKeys',
+          details: {
+            label,
+            availableKeys: this.cache.keys().slice(0, 10)
+          }
+        },
+        metadata: {
+          cached: false,
+          online: this.isOnline,
+          timestamp: new Date().toISOString()
+        }
+      };
+
+    } catch (error) {
+      this.logger.error(`Erreur récupération clé: "${label}"`, error);
+      return ErrorMapper.mapHttpError(error, this.apiKey);
+    }
+  }
+
+  /**
+   * ✅ NOUVELLE MÉTHODE: safeGet() - version simple qui ne throw jamais
+   */
+  async safeGet(label: string, fallback: string = ''): Promise<string> {
+    const result = await this.get(label);
+
+    if (result.success && result.data?.value) {
+      return result.data.value;
+    }
+
+    if (result.error && this.debug) {
+      this.logger.warn(`⚠️ ${result.error.message}`, result.error);
+    }
+
+    return fallback;
+  }
+
+  /**
+   * ✅ MÉTHODE AMÉLIORÉE: getMultiple() retourne Result
+   */
+  async getMultiple(labels: string[]): Promise<Result<Record<string, Key | null>>> {
+    this.logger.log(`📦 Récupération multiple: ${labels.length} clés`);
+
+    try {
+      await this.waitForInitialization();
+
+      if (!this.cache.isValidForApiKey(this.apiKey)) {
+        return {
+          success: false,
+          error: {
+            code: 'CACHE_INVALID',
+            message: 'Cache invalide',
+            suggestion: 'Reconnectez-vous pour recharger le cache'
+          },
+          metadata: {
+            cached: false,
+            online: this.isOnline,
+            timestamp: new Date().toISOString()
+          }
+        };
+      }
+
+      const results: Record<string, Key | null> = {};
+      labels.forEach(label => {
+        const cached = this.cache.get(label);
+        results[label] = cached ? this.sanitizeKey(cached) : null;
+      });
+
+      return {
+        success: true,
+        data: results,
+        metadata: {
+          cached: true,
+          online: this.isOnline,
+          timestamp: new Date().toISOString()
+        }
+      };
+
+    } catch (error) {
+      return ErrorMapper.mapHttpError(error, this.apiKey);
+    }
+  }
+
+  /**
+   * ✅ MÉTHODE AMÉLIORÉE: refresh() retourne Result
+   */
+  async refresh(): Promise<Result<boolean>> {
+    this.logger.log('🔄 Rafraîchissement manuel du cache');
+
+    try {
       const response = await axios.get<{ data: Key[] }>(this.baseURL, {
         headers: { 'x-fyk-key': this.apiKey },
         timeout: 10000
       });
 
       if (response.data?.data) {
-        this.logger.log(`📦 ${response.data.data.length} clés reçues de l'API`);
         this.cache.clear();
-        
         response.data.data.forEach(key => {
           this.cache.set(key.label, key);
         });
-        
-        this.logger.log(`💾 Cache ${this.environment} chargé: ${this.cache.size()} clés`);
-      } else {
-        throw new FetchYourKeysError(
-          'Réponse API invalide',
-          'INVALID_API_RESPONSE',
-          { response: response.data }
-        );
-      }
-    } catch (error) {
-      this.logger.error('❌ Erreur chargement des clés', {
-        apiKey: this.maskApiKey(this.apiKey),
-        error
-      });
-      
-      if (error instanceof Error && (error as any).isAxiosError) {
-        throw new NetworkError(
-          `Erreur réseau: ${(error as any).message}`,
-          {
-            status: (error as any).response?.status,
-            statusText: (error as any).response?.statusText,
-            url: this.baseURL,
-            apiKey: this.maskApiKey(this.apiKey)
+        this.isOnline = true;
+        this.logger.log('✅ Cache rafraîchi');
+
+        return {
+          success: true,
+          data: true,
+          metadata: {
+            cached: false,
+            online: true,
+            timestamp: new Date().toISOString()
           }
-        );
-      }
-      throw error;
-    }
-  }
-
-  async get(label: string): Promise<Key | null> {
-    this.logger.log(`🔍 Recherche clé: "${label}"`);
-    
-    try {
-      await this.waitForInitialization();
-
-      // ✅ Vérification de sécurité AVANT chaque accès
-      if (!this.cache.isValidForApiKey(this.apiKey)) {
-        const error = new SecurityError('Cache invalide pour cette clé API', {
-          apiKey: this.maskApiKey(this.apiKey),
-          cacheId: this.cacheId
-        });
-        this.logger.error('❌ Erreur sécurité', error);
-        return null;
+        };
       }
 
-      const cached = this.cache.get(label);
-      if (cached) {
-        this.logger.log(`✅ Clé trouvée en cache: "${label}"`);
-        return this.sanitizeKey(cached);
-      }
-
-      this.logger.log(`❌ Clé non trouvée en cache: "${label}"`);
-
-      if (this.isOnline) {
-        try {
-          this.logger.log(`🔄 Tentative de rechargement pour: "${label}"`);
-          await this.loadAllKeys();
-          const refreshed = this.cache.get(label);
-          if (refreshed) {
-            this.logger.log(`✅ Clé trouvée après rechargement: "${label}"`);
-            return this.sanitizeKey(refreshed);
-          }
-        } catch (error) {
-          this.logger.error(`❌ Erreur rechargement pour: "${label}"`, {
-            apiKey: this.maskApiKey(this.apiKey),
-            error
-          });
-          this.isOnline = false;
+      return {
+        success: false,
+        error: {
+          code: 'REFRESH_FAILED',
+          message: 'Impossible de rafraîchir le cache',
+          suggestion: 'Vérifiez votre connexion'
         }
-      }
-
-      this.logger.warn(`⚠️ Clé introuvable: "${label}"`);
-      return null;
+      };
 
     } catch (error) {
-      this.logger.error(`❌ Erreur récupération clé: "${label}"`, {
-        apiKey: this.maskApiKey(this.apiKey),
-        error
-      });
-      return null;
-    }
-  }
+      this.isOnline = false;
 
-  async getWithFallback(label: string, fallback?: string): Promise<string> {
-    // this.logger.log(`🛡️ Récupération avec fallback: "${label}"`);
-    
-    try {
-      await this.waitForInitialization();
-
-      if (!this.cache.isValidForApiKey(this.apiKey)) {
-        this.logger.error('❌ Cache invalide - utilisation du fallback', {
-          apiKey: this.maskApiKey(this.apiKey)
-        });
-        return fallback || '';
+      if (this.cache.size() > 0) {
+        return {
+          success: false,
+          error: {
+            code: 'REFRESH_FAILED',
+            message: 'Impossible de rafraîchir, utilisation du cache',
+            suggestion: 'Mode hors ligne actif'
+          },
+          metadata: {
+            cached: true,
+            online: false,
+            timestamp: new Date().toISOString()
+          }
+        };
       }
 
-      const cached = this.cache.get(label);
-      if (cached?.value) {
-        this.logger.log(`✅ Clé trouvée: "${label}"`);
-        return cached.value;
-      }
-
-      if (!this.isOnline && !cached) {
-        this.logger.warn(`⚠️ Clé "${label}" non trouvée en cache - utilisation du fallback`);
-      }
-
-      return fallback || '';
-
-    } catch (error) {
-      this.logger.error(`❌ Erreur récupération avec fallback: "${label}"`, {
-        apiKey: this.maskApiKey(this.apiKey),
-        error
-      });
-      return fallback || '';
-    }
-  }
-
-  async getMultiple(labels: string[]): Promise<Record<string, Key | null>> {
-    this.logger.log(`📦 Récupération multiple: ${labels.length} clés`);
-    
-    try {
-      await this.waitForInitialization();
-
-      if (!this.cache.isValidForApiKey(this.apiKey)) {
-        this.logger.error('❌ Cache invalide - retour résultats vides', {
-          apiKey: this.maskApiKey(this.apiKey)
-        });
-        return labels.reduce((acc, label) => {
-          acc[label] = null;
-          return acc;
-        }, {} as Record<string, Key | null>);
-      }
-      
-      const results: Record<string, Key | null> = {};
-      const found: string[] = [];
-      const missing: string[] = [];
-      
-      labels.forEach(label => {
-        const cached = this.cache.get(label);
-        results[label] = cached ? this.sanitizeKey(cached) : null;
-        
-        if (cached) found.push(label);
-        else missing.push(label);
-      });
-
-      this.logger.log('📊 Résultats récupération multiple', {
-        trouvées: found,
-        manquantes: missing,
-        total: `${found.length}/${labels.length}`,
-      });
-
-      if (!this.isOnline && missing.length > 0) {
-        this.logger.warn(`⚠️ Clés manquantes en cache: ${missing.join(', ')}`);
-      }
-
-      return results;
-
-    } catch (error) {
-      this.logger.error('❌ Erreur récupération multiple', {
-        apiKey: this.maskApiKey(this.apiKey),
-        error
-      });
-      return labels.reduce((acc, label) => {
-        acc[label] = null;
-        return acc;
-      }, {} as Record<string, Key | null>);
+      return ErrorMapper.mapHttpError(error, this.apiKey);
     }
   }
 
   async getAll(): Promise<Key[]> {
-    this.logger.log('📚 Récupération de toutes les clés');
-    
     try {
       await this.waitForInitialization();
-
-      if (!this.cache.isValidForApiKey(this.apiKey)) {
-        this.logger.error('❌ Cache invalide - retour tableau vide', {
-          apiKey: this.maskApiKey(this.apiKey)
-        });
-        return [];
-      }
-      
-      const keys = this.cache.keys().map(key => this.sanitizeKey(this.cache.get(key)));
-      this.logger.log(`📖 ${keys.length} clés récupérées`);
-      return keys;
-
+      return this.cache.keys().map(key => this.sanitizeKey(this.cache.get(key)));
     } catch (error) {
-      this.logger.error('❌ Erreur récupération totale', {
-        apiKey: this.maskApiKey(this.apiKey),
-        error
-      });
+      this.logger.error('Erreur récupération totale', error);
       return [];
     }
   }
 
   async filter(predicate: (key: Key) => boolean): Promise<Key[]> {
-    this.logger.log('🔎 Filtrage des clés');
-    
-    try {
-      const allKeys = await this.getAll();
-      const filtered = allKeys.filter(predicate);
-      this.logger.log(`🎯 ${filtered.length} clés filtrées`);
-      return filtered;
-    } catch (error) {
-      this.logger.error('❌ Erreur filtrage', {
-        apiKey: this.maskApiKey(this.apiKey),
-        error
-      });
-      return [];
-    }
+    const allKeys = await this.getAll();
+    return allKeys.filter(predicate);
   }
 
   async getByService(service: string): Promise<Key[]> {
-    this.logger.log(`🏷️ Récupération par service: "${service}"`);
     return this.filter(key => key.service === service);
   }
 
-  async refresh(): Promise<boolean> {
-    this.logger.log('🔄 Rafraîchissement manuel du cache');
-    
-    try {
-      await this.loadAllKeys();
-      this.isOnline = true;
-      this.logger.log('✅ Cache rafraîchi avec succès');
-      return true;
-    } catch (error) {
-      this.logger.error('❌ Erreur rafraîchissement', {
-        apiKey: this.maskApiKey(this.apiKey),
-        error
-      });
-      this.isOnline = false;
-      
-      const hasData = this.cache.size() > 0;
-      if (hasData) {
-        this.logger.warn('⚠️ Rafraîchissement échoué - utilisation du cache existant');
-      } else {
-        this.logger.error('❌ Impossible de rafraîchir - pas de connexion et cache vide');
-      }
-      return false;
-    }
-  }
-
-  async checkConnection(): Promise<boolean> {
-    this.logger.log('🌐 Vérification de connexion');
-    
-    try {
-      await axios.get(this.baseURL, {
-        headers: { 'x-fyk-key': this.apiKey },
-        timeout: 5000
-      });
-      this.isOnline = true;
-      this.logger.log('✅ Connexion OK');
-      return true;
-    } catch (error) {
-      this.isOnline = false;
-      this.logger.error('❌ Connexion échouée', {
-        apiKey: this.maskApiKey(this.apiKey),
-        error
-      });
-      return false;
-    }
-  }
-
   private sanitizeKey(key: Key): Key {
-    const { meta, ...sanitized } = key;
+    const { meta, ...sanitized } = key as any;
     return sanitized as Key;
   }
 
   getStats() {
+
+    if (this.initializationError) {
+      return {
+        cachedKeys: 0,
+        isOnline: false,
+        environment: this.environment,
+        cacheType: this.environment === 'prod' ? 'Mémoire sécurisée' : 'Disque chiffré',
+        cacheValid: false,
+        cacheId: this.cacheId,
+        apiKey: this.maskApiKey(this.apiKey),
+        status: '🔴 ERREUR INITIALISATION',
+        error: {
+          code: this.initializationError.code,
+          message: this.initializationError.message,
+          suggestion: this.initializationError.details?.suggestion
+        },
+        debugEnabled: this.debug,
+        silentMode: this.silentMode
+      }
+    
+    }
+
     const cacheKeys = this.cache.keys();
     const isValid = this.cache.isValidForApiKey(this.apiKey);
-    
-    const stats = {
+
+    return {
       cachedKeys: cacheKeys.length,
       isOnline: this.isOnline,
       environment: this.environment,
       cacheType: this.environment === 'prod' ? 'Mémoire sécurisée' : 'Disque chiffré',
-      // Maintient cacheValid et cacheId dans les stats, mais pas les logs habituels
       cacheValid: isValid,
       cacheId: this.cacheId,
       apiKey: this.maskApiKey(this.apiKey),
-      status: !isValid ? '🔴 CACHE INVALIDE' : 
-              this.isOnline ? '🟢 EN LIGNE' : 
-              (cacheKeys.length > 0 ? '🟡 HORS LIGNE' : '🔴 HORS LIGNE (vide)'),
-      debugEnabled: this.debug
+      status: !isValid ? '🔴 CACHE INVALIDE' :
+        this.isOnline ? '🟢 EN LIGNE' :
+          (cacheKeys.length > 0 ? '🟡 HORS LIGNE' : '🔴 HORS LIGNE (vide)'),
+      debugEnabled: this.debug,
+      silentMode: this.silentMode
     };
-
-    this.logger.log('📊 Statistiques', stats);
-    return stats;
   }
 
-  /**
-   * Obtient l'historique des logs (seulement en mode debug)
-   */
-  getLogHistory(): string[] {
+  getLogHistory(): Array<{ timestamp: string; level: string; message: string; data?: any }> {
     if (!this.debug) {
-      this.logger.warn('📝 Historique des logs non disponible - activez le mode debug');
-      return ['Mode debug non activé'];
+      this.logger.warn('Historique non disponible - activez le mode debug');
+      return [];
     }
     return this.logger.getHistory();
   }
 
-  /**
-   * Nettoie complètement le cache
-   */
   clearCache(): void {
-    this.logger.log('🗑️ Nettoyage du cache demandé');
+    this.logger.log('🗑️ Nettoyage du cache');
     this.cache.clear();
-    this.logger.log('✅ Cache nettoyé');
   }
 
-  /**
-   * Active/désactive le mode debug à la volée
-   */
   setDebug(enabled: boolean): void {
     this.debug = enabled;
     if (enabled) {
-      this.logger.enable();
+      this.logger.enable(this.silentMode);
     } else {
       this.logger.disable();
     }
-    this.logger.log(`🔧 Mode debug ${enabled ? 'activé' : 'désactivé'}`);
   }
 
-  destroy(): void {
-    this.logger.log('♻️ Destruction de l\'instance FetchYourKeys');
-    this.cache.clear();
-    this.logger.disable();
+  setSilentMode(silent: boolean): void {
+    this.silentMode = silent;
+    this.logger.setSilentMode(silent);
   }
 }
 
 export default FetchYourKeys;
-export { 
-  FetchYourKeys, 
-  FetchYourKeysError, 
-  CacheError, 
-  NetworkError, 
-  SecurityError 
+export {
+  FetchYourKeys,
+  FetchYourKeysError,
+  CacheError,
+  NetworkError,
+  SecurityError,
+  type Result,
+  type Key,
+  type FetchYourKeysOptions
 };

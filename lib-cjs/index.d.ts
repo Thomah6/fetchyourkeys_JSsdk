@@ -3,16 +3,34 @@ interface Key {
     label: string;
     service: string;
     value: string;
-    meta: Record<string, any>;
     is_active: boolean;
     created_at: string;
     updated_at: string;
+}
+/**
+ * Structure de réponse standardisée pour toutes les opérations
+ */
+interface Result<T> {
+    success: boolean;
+    data?: T;
+    error?: {
+        code: string;
+        message: string;
+        suggestion?: string;
+        details?: any;
+    };
+    metadata?: {
+        cached: boolean;
+        online: boolean;
+        timestamp: string;
+    };
 }
 interface FetchYourKeysOptions {
     apiKey?: string;
     baseURL?: string;
     environment?: 'dev' | 'prod';
     debug?: boolean;
+    silentMode?: boolean;
 }
 declare class FetchYourKeysError extends Error {
     code: string;
@@ -34,27 +52,44 @@ declare class FetchYourKeys {
     private cache;
     private isOnline;
     private initializationPromise;
+    private initializationError;
     private environment;
     private debug;
+    private silentMode;
     private logger;
     private cacheId;
     constructor(options?: FetchYourKeysOptions);
     private maskApiKey;
-    /**
-     * Valide et normalise l'environnement
-     */
     private validateEnvironment;
-    private initializeWithOfflineSupport;
+    /**
+     * ✅ NOUVELLE MÉTHODE: Initialisation avec validation automatique de la clé FYK
+     * Le SDK vérifie automatiquement la validité de la clé à l'initialisation
+     */
+    private initializeWithAutoValidation;
     private waitForInitialization;
-    private loadAllKeys;
-    get(label: string): Promise<Key | null>;
-    getWithFallback(label: string, fallback?: string): Promise<string>;
-    getMultiple(labels: string[]): Promise<Record<string, Key | null>>;
+    /**
+    * ✅ NOUVELLE MÉTHODE: Permet de vérifier l'état d'initialisation
+    */
+    getInitializationError(): FetchYourKeysError | null;
+    /**
+     * ✅ MÉTHODE AMÉLIORÉE: get() retourne Result<Key>
+     */
+    get(label: string): Promise<Result<Key>>;
+    /**
+     * ✅ NOUVELLE MÉTHODE: safeGet() - version simple qui ne throw jamais
+     */
+    safeGet(label: string, fallback?: string): Promise<string>;
+    /**
+     * ✅ MÉTHODE AMÉLIORÉE: getMultiple() retourne Result
+     */
+    getMultiple(labels: string[]): Promise<Result<Record<string, Key | null>>>;
+    /**
+     * ✅ MÉTHODE AMÉLIORÉE: refresh() retourne Result
+     */
+    refresh(): Promise<Result<boolean>>;
     getAll(): Promise<Key[]>;
     filter(predicate: (key: Key) => boolean): Promise<Key[]>;
     getByService(service: string): Promise<Key[]>;
-    refresh(): Promise<boolean>;
-    checkConnection(): Promise<boolean>;
     private sanitizeKey;
     getStats(): {
         cachedKeys: number;
@@ -65,22 +100,36 @@ declare class FetchYourKeys {
         cacheId: string;
         apiKey: string;
         status: string;
+        error: {
+            code: string;
+            message: string;
+            suggestion: any;
+        };
         debugEnabled: boolean;
+        silentMode: boolean;
+    } | {
+        cachedKeys: number;
+        isOnline: boolean;
+        environment: "dev" | "prod";
+        cacheType: string;
+        cacheValid: boolean;
+        cacheId: string;
+        apiKey: string;
+        status: string;
+        debugEnabled: boolean;
+        silentMode: boolean;
+        error?: undefined;
     };
-    /**
-     * Obtient l'historique des logs (seulement en mode debug)
-     */
-    getLogHistory(): string[];
-    /**
-     * Nettoie complètement le cache
-     */
+    getLogHistory(): Array<{
+        timestamp: string;
+        level: string;
+        message: string;
+        data?: any;
+    }>;
     clearCache(): void;
-    /**
-     * Active/désactive le mode debug à la volée
-     */
     setDebug(enabled: boolean): void;
-    destroy(): void;
+    setSilentMode(silent: boolean): void;
 }
 export default FetchYourKeys;
-export { FetchYourKeys, FetchYourKeysError, CacheError, NetworkError, SecurityError };
+export { FetchYourKeys, FetchYourKeysError, CacheError, NetworkError, SecurityError, type Result, type Key, type FetchYourKeysOptions };
 //# sourceMappingURL=index.d.ts.map
